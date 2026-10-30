@@ -322,6 +322,28 @@ class ReplacementBoundaryTests(unittest.TestCase):
         self.assertEqual(self.humanize("此外"), "另外")
         self.assertEqual(self.humanize("与此同时"), "同时")
 
+    def test_raner_and_yinci_in_idioms_untouched(self):
+        # 验证 issue #13: 固定成语和专有名词中的“然/而”或“因/此”不被断开误换
+        for s in [
+            "油然而生",
+            "自然而然",
+            "斐然而成",
+            "截然而止",
+            "悄然而至",
+            "吉凶因此而定",
+        ]:
+            self.assertEqual(self.humanize(s), s, s)
+
+        # 在分句/句首等位置依然正常替换
+        self.assertEqual(self.humanize("然而事实并非如此。"), "不过事实并非如此。")
+        self.assertEqual(self.humanize("虽然很难，然而他还是完成了。"), "虽然很难，不过他还是完成了。")
+        self.assertEqual(self.humanize("天降大雨，因此活动延期。"), "天降大雨，所以活动延期。")
+
+    def test_url_protect_with_chinese_punctuation(self):
+        # 验证 issue #14: URL 后跟中文句号等标点不被贪婪吞噬
+        text = "详情请查看 https://example.com/test。欢迎使用！"
+        self.assertEqual(make_plugin().humanize(text), text)
+
     def test_issue_examples_in_full_pipeline(self):
         plugin = make_plugin()
         self.assertEqual(plugin.humanize("这是非常规操作，不要这样做。"), "这是非常规操作，不要这样做。")
