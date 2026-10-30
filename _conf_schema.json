@@ -1,0 +1,62 @@
+{
+  "enable": {
+    "description": "总开关",
+    "type": "bool",
+    "hint": "关掉后本插件完全不动回复",
+    "default": true
+  },
+  "strip_openers": {
+    "description": "删开场套话",
+    "type": "bool",
+    "hint": "「这是一个很好的问题」「作为一个人工智能」「让我们一起来看看」这类",
+    "default": true
+  },
+  "strip_closers": {
+    "description": "删收尾套话",
+    "type": "bool",
+    "hint": "「希望这对你有帮助」「如果还有其他问题，欢迎随时提问」这类",
+    "default": true
+  },
+  "strip_connectives": {
+    "description": "删废话连接词",
+    "type": "bool",
+    "hint": "「总的来说」「需要注意的是」「首先，」这类只起转场作用的短语",
+    "default": true
+  },
+  "colloquial_swap": {
+    "description": "书面词换口语词",
+    "type": "bool",
+    "hint": "因此→所以、然而→不过、此外→另外、是否→是不是 等固定对照",
+    "default": true
+  },
+  "clean_markdown": {
+    "description": "清 IM 里的 markdown 痕迹",
+    "type": "bool",
+    "hint": "去掉行首 # 标题符号、** 加粗标记，把连续的 —— 压成一个，压多余空行；代码块不受影响",
+    "default": true
+  },
+  "custom_remove": {
+    "description": "自定义要删的短语正则",
+    "type": "list",
+    "hint": "每条是一个正则，在正文里命中即删除；不影响代码块与链接",
+    "default": []
+  },
+  "llm_rewrite": {
+    "description": "用模型再润色一遍（可选，默认关）",
+    "type": "bool",
+    "hint": "开启后每条回复多一次模型调用，慢且费额度；只在不满意确定性规则时开",
+    "default": false
+  },
+  "llm_provider_id": {
+    "description": "润色用的模型实例 ID",
+    "type": "string",
+    "hint": "填主配置 provider 数组里的 id，例如 modelscope/Qwen/Qwen3.8-27B；留空则跳过润色档",
+    "default": ""
+  },
+  "llm_style": {
+    "description": "润色风格要求",
+    "type": "text",
+    "hint": "作为 system 提示词附加；默认要求保留全部事实、数字、代码，只改口气",
+    "default": "保留原意、全部事实、数字和代码，只把口气改成人在 IM 里随手打出来的样子：句子短，少用书面连接词，不要总结句，不要用 markdown。只输出改写后的正文。"
+  }
+}
