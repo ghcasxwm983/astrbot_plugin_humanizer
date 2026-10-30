@@ -128,6 +128,59 @@ class CleanMarkdownBoldTests(unittest.TestCase):
         self.assertEqual(self.clean("**第一行\n第二行**"), "**第一行\n第二行**")
 
 
+class RuoReplacementTests(unittest.TestCase):
+    """「若」只在连词位置口语化，成语与固搭不动（issue #3）。"""
+
+    def humanize(self, s):
+        return make_plugin(
+            strip_openers=False,
+            strip_closers=False,
+            strip_connectives=False,
+            clean_markdown=False,
+        ).humanize(s)
+
+    def test_idioms_untouched(self):
+        for s in [
+            "欣喜若狂",
+            "置若罔闻",
+            "安之若素",
+            "若即若离",
+            "若隐若现",
+            "判若两人",
+            "视若无睹",
+            "泰然自若",
+            "若无其事",
+            "了若指掌",
+            "视若他人",
+            "若干问题",
+            "否则就算了",
+            "宛若仙境",
+        ]:
+            self.assertEqual(self.humanize(s), s, s)
+
+    def test_conjunction_forms_replaced(self):
+        self.assertEqual(self.humanize("若是这样"), "要是这样")
+        self.assertEqual(self.humanize("假若是这样"), "要是这样")
+        self.assertEqual(self.humanize("假若你不同意"), "要是你不同意")
+        self.assertEqual(self.humanize("倘若失败"), "要是失败")
+        self.assertEqual(self.humanize("如若不行就换方案"), "要是不行就换方案")
+        self.assertEqual(self.humanize("若你同意，我们就开始"), "要是你同意，我们就开始")
+        self.assertEqual(self.humanize("若不及时处理，会出问题"), "要是不及时处理，会出问题")
+        self.assertEqual(self.humanize("但若你觉得不合适"), "但要是你觉得不合适")
+
+    def test_no_double_replacement(self):
+        self.assertEqual(self.humanize("若是"), "要是")
+        self.assertEqual(self.humanize("若是是"), "要是是")
+
+    def test_closer_does_not_clip_ruo_inside_word(self):
+        # 收尾套话规则里也有「若」，不能把「倘若」拆成「倘 + 若」再啃掉后半句。
+        text = "倘若你还有问题，欢迎随时提问"
+        self.assertEqual(make_plugin().humanize(text), text)
+        self.assertEqual(
+            make_plugin().humanize("配置就这些。若你还有其他问题，欢迎随时提问"), "配置就这些。"
+        )
+
+
 class HumanizeTests(unittest.TestCase):
     def test_protected_code_block_keeps_stars(self):
         text = "看代码：\n```python\nprint(2 ** 10)\n```\n结论是**很好**"
