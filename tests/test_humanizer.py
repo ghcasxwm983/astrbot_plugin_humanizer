@@ -6,6 +6,7 @@
 astrbot 的运行时用不到，这里用最小桩件顶上，只验规则函数本身。
 """
 
+import asyncio
 import importlib.util
 import os
 import sys
@@ -179,6 +180,110 @@ class RuoReplacementTests(unittest.TestCase):
         self.assertEqual(
             make_plugin().humanize("配置就这些。若你还有其他问题，欢迎随时提问"), "配置就这些。"
         )
+
+
+class Plain:
+    """假 Plain：类名必须叫 Plain，main 的类名兜底靠它认。"""
+
+    def __init__(self, text=""):
+        self.text = text
+
+
+class _Image:
+    pass
+
+
+class _Chain:
+    def __init__(self, comps):
+        self.chain = list(comps)
+
+
+class _Resp:
+    """复刻 AstrBot LLMResponse 的 completion_text 语义（issue #5 的现场）。"""
+
+    def __init__(self, comps):
+        self.result_chain = _Chain(comps)
+
+    @property
+    def completion_text(self):
+        return "".join(c.text for c in self.result_chain.chain if isinstance(c, Plain))
+
+    @completion_text.setter
+    def completion_text(self, value):
+        # 真实实现：剔掉所有 Plain，再整段插到索引 0
+        self.result_chain.chain = [c for c in self.result_chain.chain if not isinstance(c, Plain)]
+        self.result_chain.chain.insert(0, Plain(value))
+
+
+class _StrResp:
+    """没有消息链的纯字符串响应。"""
+
+    def __init__(self, text):
+        self.completion_text = text
+
+
+class _Event:
+    pass
+
+
+class MessageChainTests(unittest.TestCase):
+    """图文混排时按段原位改写，不打乱组件顺序（issue #5）。"""
+
+    def run_hook(self, resp, **overrides):
+        plugin = make_plugin(**overrides)
+        asyncio.run(plugin.on_llm_response(_Event(), resp))
+        return plugin
+
+    def test_image_keeps_its_position(self):
+        img = _Image()
+        resp = _Resp([
+            Plain("这是一个很好的问题。正文在中间。"),
+            img,
+            Plain("希望这对你有帮助。"),
+        ])
+        self.run_hook(resp)
+        comps = resp.result_chain.chain
+        self.assertEqual([type(c).__name__ for c in comps], ["Plain", "_Image", "Plain"])
+        self.assertIs(comps[1], img)
+        self.assertEqual(comps[0].text, "正文在中间。")
+        self.assertEqual(comps[2].text, "")
+
+    def test_completion_text_is_joined_view(self):
+        resp = _Resp([Plain("**要点**：因此要这样做。"), _Image(), Plain("结尾")])
+        self.run_hook(resp)
+        self.assertEqual(resp.completion_text, "要点：所以要这样做。结尾")
+
+    def test_multi_component_chain_still_has_two_plains(self):
+        resp = _Resp([Plain("开头"), _Image(), Plain("结尾")])
+        self.run_hook(resp)
+        self.assertEqual(len(resp.result_chain.chain), 3)
+
+    def test_middle_plain_is_not_treated_as_ending(self):
+        resp = _Resp([
+            Plain("开头"),
+            _Image(),
+            Plain("如果还有其他问题，欢迎随时提问。"),
+            _Image(),
+            Plain("结尾"),
+        ])
+        self.run_hook(resp)
+        self.assertEqual(resp.result_chain.chain[2].text, "如果还有其他问题，欢迎随时提问。")
+
+    def test_single_plain_chain_never_emptied(self):
+        # 只有一段正文时，规则把话吃干净也不发空消息，保留原文
+        resp = _Resp([Plain("希望这对你有帮助。")])
+        self.run_hook(resp)
+        self.assertEqual(resp.completion_text, "希望这对你有帮助。")
+
+    def test_plain_string_response_uses_assignment(self):
+        resp = _StrResp("**结论**：因此可以直接上线。")
+        self.run_hook(resp)
+        self.assertEqual(resp.completion_text, "结论：所以可以直接上线。")
+
+    def test_image_only_chain_is_noop(self):
+        resp = _Resp([_Image()])
+        self.run_hook(resp)
+        self.assertEqual(len(resp.result_chain.chain), 1)
 
 
 class HumanizeTests(unittest.TestCase):

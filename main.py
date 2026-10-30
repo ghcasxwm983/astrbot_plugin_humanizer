@@ -13,6 +13,14 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.provider import LLMResponse
 from astrbot.api.star import Context, Star, register
 
+try:  # Plain 组件在 4.x 里换过位置，能 import 哪个用哪个，都不行就按类名兜底
+    from astrbot.api.message_components import Plain as _Plain
+except Exception:  # noqa: BLE001 - 插件要能在不同小版本上加载
+    try:
+        from astrbot.core.message.components import Plain as _Plain
+    except Exception:  # noqa: BLE001
+        _Plain = None
+
 # ---------------------------------------------------------------- 保护段
 # 顺序有意义：围栏代码要整体吃掉，否则里面的 ` 和 # 会被后面的规则误伤。
 PROTECT = re.compile(
@@ -99,6 +107,18 @@ def _segments(text: str):
     return out
 
 
+def _is_plain(comp) -> bool:
+    if _Plain is not None and isinstance(comp, _Plain):
+        return True
+    return type(comp).__name__ == "Plain"
+
+
+def _plain_components(resp):
+    """取出消息链里的文本段（位置不动）和整条链。没有链时返回空列表。"""
+    chain = getattr(getattr(resp, "result_chain", None), "chain", None) or []
+    return [comp for comp in chain if _is_plain(comp)], chain
+
+
 def _clean_markdown(s: str) -> str:
     s = re.sub(r"(?m)^[ \t]*#{1,6}[ \t]+", "", s)   # 行首 # 标题符号
     s = BOLD_PAIR.sub(r"\1", s)                      # 只拆成对的加粗标记，保留内容
@@ -111,7 +131,7 @@ def _clean_markdown(s: str) -> str:
     "astrbot_plugin_humanizer",
     "Maxsun",
     "出站前抹掉 AI 味话术壳（开场白/总结句/书面连接词/markdown 痕迹），代码块、链接、@ 卡片逐字节保留。",
-    "1.0.2",
+    "1.0.3",
 )
 class HumanizerPlugin(Star):
     """只在普通正文上做位置式改写，受保护片段原样穿过。"""
@@ -147,8 +167,13 @@ class HumanizerPlugin(Star):
                 logger.warning(f"[humanizer] 自定义正则无效已跳过：{item}（{exc}）")
 
     # ------------------------------------------------------------ 核心
-    def humanize(self, text: str) -> str:
-        """纯函数，便于离线回归：输入原文，输出润色后的正文。"""
+    def humanize(self, text: str, at_start: bool = True, at_end: bool = True,
+                 allow_empty: bool = False) -> str:
+        """纯函数，便于离线回归：输入原文，输出润色后的正文。
+
+        at_start / at_end 控制开场、收尾套话要不要认——图文混排时只有第一段算开头、
+        最后一段算结尾；allow_empty 给「消息链里还有别的组件」的场景用，允许这一段被清空。
+        """
         if not text or not text.strip():
             return text
 
@@ -160,12 +185,18 @@ class HumanizerPlugin(Star):
         first, last = prose_idx[0], prose_idx[-1]
         for i in prose_idx:
             protected, chunk = parts[i]
-            parts[i] = (False, self._rewrite_chunk(chunk, at_start=(i == first), at_end=(i == last)))
+            parts[i] = (
+                False,
+                self._rewrite_chunk(chunk, at_start=(at_start and i == first), at_end=(at_end and i == last)),
+            )
 
         result = "".join(chunk for _, chunk in parts)
         result = re.sub(r"\n{3,}", "\n\n", result).strip()
-        # 规则把整条吃空时保留原文，宁可不改也不发空消息
-        return result if result.strip() else text
+        if result.strip():
+            return result
+        # 规则把整条吃空时：单条消息保留原文，宁可不改也不发空消息；
+        # 消息链里还有别的段时这一段可以为空，否则收尾套话永远删不掉。
+        return "" if allow_empty else text
 
     def _rewrite_chunk(self, s: str, at_start: bool, at_end: bool) -> str:
         if not s.strip():
@@ -226,11 +257,32 @@ class HumanizerPlugin(Star):
         if not source.strip():
             return
 
+        plains, chain = _plain_components(resp)
+        if plains:
+            # 原位改每个 Plain，绝不碰 completion_text：
+            # 它的 setter 会剔掉所有 Plain 再往索引 0 插一整段，图文顺序会被打乱。
+            allow_empty = len(chain) > 1
+            last = len(plains) - 1
+            for i, comp in enumerate(plains):
+                raw = getattr(comp, "text", "") or ""
+                new = self.humanize(
+                    raw,
+                    at_start=(i == 0),
+                    at_end=(i == last),
+                    allow_empty=allow_empty,
+                )
+                if self.llm_rewrite:
+                    new = await self._llm_polish(new, raw)
+                if new != raw:
+                    comp.text = new
+            logger.debug(f"[humanizer] 按 {len(plains)} 段正文原位润色")
+            return
+
         cleaned = self.humanize(source)
         if self.llm_rewrite:
             cleaned = await self._llm_polish(cleaned, source)
 
         if cleaned != source:
-            # completion_text 是链的属性视图：赋值会把链里的 Plain 段整体换掉，图片等其它段保留。
+            # 没有消息链（纯字符串响应）时才走整体赋值。
             resp.completion_text = cleaned
             logger.debug(f"[humanizer] 润色 {len(source)} → {len(cleaned)} 字")
