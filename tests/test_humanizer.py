@@ -339,6 +339,25 @@ class ReplacementBoundaryTests(unittest.TestCase):
         self.assertEqual(self.humanize("虽然很难，然而他还是完成了。"), "虽然很难，不过他还是完成了。")
         self.assertEqual(self.humanize("天降大雨，因此活动延期。"), "天降大雨，所以活动延期。")
 
+    def test_wubi_boundary_and_compounds_untouched(self):
+        # 验证 issue #11: “务必” 边界断言，不拆毁“事务/服务/财务”等复合名词或接“须/定”等
+        for s in [
+            "服务必须到位",
+            "财务必须核算清楚",
+            "这项事务必定有转机",
+            "劳务必须签订合同",
+            "业务必定会拓展",
+            "业务必然会增长",
+            "债务必须要还",
+            "家务必须要分担",
+        ]:
+            self.assertEqual(self.humanize(s), s, s)
+
+        # 真正口语“务必”正常替换为“一定”
+        self.assertEqual(self.humanize("请务必按时到场"), "请一定按时到场")
+        self.assertEqual(self.humanize("务必注意安全"), "一定注意安全")
+        self.assertEqual(self.humanize("大家务必提前准备好"), "大家一定提前准备好")
+
     def test_url_protect_with_chinese_punctuation(self):
         # 验证 issue #14: URL 后跟中文句号等标点不被贪婪吞噬
         text = "详情请查看 https://example.com/test。欢迎使用！"
@@ -373,6 +392,16 @@ class JikeReplacementTests(unittest.TestCase):
         self.assertEqual(self.humanize("输入密码即可进入后台"), "输入密码就能进入后台")
         self.assertEqual(self.humanize("点击确认即可保存配置"), "点击确认就能保存配置")
         self.assertEqual(self.humanize("配置好后即可使用"), "配置好后就能使用")
+        # 验证 issue #12: 带有英文空格分隔时依然为连动，不能误判为句末
+        self.assertEqual(self.humanize("输入密码 即可 进入后台"), "输入密码 就能 进入后台")
+        self.assertEqual(self.humanize("点击配置 即可 启动服务"), "点击配置 就能 启动服务")
+
+    def test_liji_ke_untouched(self):
+        # 验证 issue #12: 排除“立即”
+        self.assertEqual(self.humanize("立即可用"), "立即可用")
+        self.assertEqual(self.humanize("立即可取"), "立即可取")
+        self.assertEqual(self.humanize("立即可见"), "立即可见")
+        self.assertEqual(self.humanize("只要配置好，立即可用。"), "只要配置好，立即可用。")
 
     def test_no_leftover_jike(self):
         for s in ["重启即可", "运行脚本即可启动服务", "即可，", "即可"]:
