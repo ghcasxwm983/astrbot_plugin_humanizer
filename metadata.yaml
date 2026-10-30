@@ -17,5 +17,5 @@ desc: |
   另有一个可选的 LLM 重写档（默认关，需要填模型 ID）：把润色交给模型做，带长度、
   空输出、工具调用语法三道闸，不合格就退回确定性结果，不会把坏稿发出去。
 author: Maxsun
-version: 1.0.4
+version: 1.0.5
 astrbot_version: ">=4.27.0"
