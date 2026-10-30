@@ -286,6 +286,48 @@ class MessageChainTests(unittest.TestCase):
         self.assertEqual(len(resp.result_chain.chain), 1)
 
 
+class ReplacementBoundaryTests(unittest.TestCase):
+    """书面词替换要认构词边界（issue #7）。"""
+
+    def humanize(self, s):
+        return make_plugin(
+            strip_openers=False,
+            strip_closers=False,
+            strip_connectives=False,
+            clean_markdown=False,
+        ).humanize(s)
+
+    def test_compounds_untouched(self):
+        for s in [
+            "非常规操作",
+            "非常态",
+            "非常时期",
+            "非常见病",
+            "非常时刻",
+            "是否定句",
+            "是否是",
+            "除此之外没别的",
+            "以及时止损",
+        ]:
+            self.assertEqual(self.humanize(s), s, s)
+
+    def test_plain_words_still_replaced(self):
+        self.assertEqual(self.humanize("非常好"), "挺好")
+        self.assertEqual(self.humanize("非常重要"), "挺重要")
+        self.assertEqual(self.humanize("非常时尚"), "挺时尚")
+        self.assertEqual(self.humanize("是否常见"), "是不是常见")
+        self.assertEqual(self.humanize("是否定期检查"), "是不是定期检查")
+        self.assertEqual(self.humanize("以及时间安排"), "和时间安排")
+        self.assertEqual(self.humanize("因此"), "所以")
+        self.assertEqual(self.humanize("此外"), "另外")
+        self.assertEqual(self.humanize("与此同时"), "同时")
+
+    def test_issue_examples_in_full_pipeline(self):
+        plugin = make_plugin()
+        self.assertEqual(plugin.humanize("这是非常规操作，不要这样做。"), "这是非常规操作，不要这样做。")
+        self.assertEqual(plugin.humanize("这是一个非常态的情况。"), "这是一个非常态的情况。")
+
+
 class HumanizeTests(unittest.TestCase):
     def test_protected_code_block_keeps_stars(self):
         text = "看代码：\n```python\nprint(2 ** 10)\n```\n结论是**很好**"
