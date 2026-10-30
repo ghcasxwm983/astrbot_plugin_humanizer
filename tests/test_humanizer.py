@@ -328,6 +328,35 @@ class ReplacementBoundaryTests(unittest.TestCase):
         self.assertEqual(plugin.humanize("这是一个非常态的情况。"), "这是一个非常态的情况。")
 
 
+class JikeReplacementTests(unittest.TestCase):
+    """「即可」前置连动要换「就能」，句末才是「就行」（issue #9）。"""
+
+    def humanize(self, s):
+        return make_plugin(
+            strip_openers=False,
+            strip_closers=False,
+            strip_connectives=False,
+            clean_markdown=False,
+        ).humanize(s)
+
+    def test_clause_final_becomes_jiuxing(self):
+        self.assertEqual(self.humanize("重启即可"), "重启就行")
+        self.assertEqual(self.humanize("这样即可。"), "这样就行。")
+        self.assertEqual(self.humanize("只要重启即可。"), "只要重启就行。")
+        self.assertEqual(self.humanize("保存后即可，不用重启"), "保存后就行，不用重启")
+        self.assertEqual(self.humanize("点确认即可）"), "点确认就行）")
+
+    def test_followed_by_verb_becomes_jiuneng(self):
+        self.assertEqual(self.humanize("运行脚本即可启动服务"), "运行脚本就能启动服务")
+        self.assertEqual(self.humanize("输入密码即可进入后台"), "输入密码就能进入后台")
+        self.assertEqual(self.humanize("点击确认即可保存配置"), "点击确认就能保存配置")
+        self.assertEqual(self.humanize("配置好后即可使用"), "配置好后就能使用")
+
+    def test_no_leftover_jike(self):
+        for s in ["重启即可", "运行脚本即可启动服务", "即可，", "即可"]:
+            self.assertNotIn("即可", self.humanize(s), s)
+
+
 class HumanizeTests(unittest.TestCase):
     def test_protected_code_block_keeps_stars(self):
         text = "看代码：\n```python\nprint(2 ** 10)\n```\n结论是**很好**"
