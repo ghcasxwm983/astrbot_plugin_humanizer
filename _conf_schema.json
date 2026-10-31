@@ -29,6 +29,12 @@
     "hint": "因此→所以、然而→不过、此外→另外、是否→是不是 等固定对照",
     "default": true
   },
+  "strip_ai_cliches": {
+    "description": "删 AI 陈词与黑话",
+    "type": "bool",
+    "hint": "目前现状→现状、致力于打造→做、抓手→办法、护城河→优势、「……，为…奠定了基础。」这类句末空泛升华；词表来自去AI味 skill 合集",
+    "default": true
+  },
   "clean_markdown": {
     "description": "清 IM 里的 markdown 痕迹",
     "type": "bool",

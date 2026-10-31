@@ -348,10 +348,14 @@ class ReplacementBoundaryTests(unittest.TestCase):
             "劳务必须签订合同",
             "业务必定会拓展",
             "业务必然会增长",
-            "债务必须要还",
-            "家务必须要分担",
         ]:
             self.assertEqual(self.humanize(s), s, s)
+
+        # 「必须要」不在「务必」的替换范围里，但它本身是同义反复（v1.1 陈词规则），
+        # 这里断言的是「务」没被拆成「一定」，不是整句不变。
+        self.assertEqual(self.humanize("债务必须要还"), "债务必须还")
+        self.assertEqual(self.humanize("家务必须要分担"), "家务必须分担")
+        self.assertNotIn("一定", self.humanize("债务必须要还"))
 
         # 真正口语“务必”正常替换为“一定”
         self.assertEqual(self.humanize("请务必按时到场"), "请一定按时到场")
@@ -406,6 +410,90 @@ class JikeReplacementTests(unittest.TestCase):
     def test_no_leftover_jike(self):
         for s in ["重启即可", "运行脚本即可启动服务", "即可，", "即可"]:
             self.assertNotIn("即可", self.humanize(s), s)
+
+
+class ClicheTests(unittest.TestCase):
+    """AI 陈词与黑话（v1.1，词表来自 D:\\去AI味 的 stop-slop-zh / zh-hans）。"""
+
+    def humanize(self, s, **overrides):
+        base = dict(
+            strip_openers=False,
+            strip_closers=False,
+            strip_connectives=False,
+            clean_markdown=False,
+        )
+        base.update(overrides)
+        return make_plugin(**base).humanize(s)
+
+    def test_redundant_pairs(self):
+        self.assertEqual(self.humanize("目前现状就是这样"), "现状就是这样")
+        self.assertEqual(self.humanize("必须先备份"), "必须先备份")
+        self.assertEqual(self.humanize("必须要先备份"), "必须先备份")
+        self.assertEqual(self.humanize("免费赠送一个皮肤"), "赠送一个皮肤")
+
+    def test_filler_phrases_removed(self):
+        self.assertEqual(self.humanize("从根本上说，这就是缓存问题。"), "这就是缓存问题。")
+        self.assertEqual(self.humanize("归根结底，是钱的问题。"), "是钱的问题。")
+        self.assertEqual(self.humanize("严格来说，这不合法。"), "这不合法。")
+        self.assertEqual(self.humanize("客观来看，效果一般。"), "效果一般。")
+
+    def test_marketing_and_jargon(self):
+        self.assertEqual(self.humanize("我们致力于打造一个开源社区。"), "我们做一个开源社区。")
+        self.assertEqual(self.humanize("这篇文章深入探讨了缓存穿透。"), "这篇文章聊了缓存穿透。")
+        self.assertEqual(self.humanize("全面提升效率"), "提高效率")
+        self.assertEqual(self.humanize("建立了技术护城河"), "建立了技术优势")
+        self.assertEqual(self.humanize("抢占用户心智"), "抢占用户认知")
+        self.assertEqual(self.humanize("第二增长曲线"), "新的增长点")
+        self.assertEqual(self.humanize("全链路压测"), "全流程压测")
+        self.assertEqual(self.humanize("这套方案能破圈"), "这套方案能出圈")
+        self.assertEqual(self.humanize("找到引爆点"), "找到爆点")
+        self.assertEqual(self.humanize("这是核心抓手"), "这是核心办法")
+
+    def test_literal_meanings_untouched(self):
+        self.assertEqual(self.humanize("古堡的护城河有三米宽"), "古堡的护城河有三米宽")
+        self.assertEqual(self.humanize("要实现全面提升"), "要实现全面提升")
+        self.assertEqual(self.humanize("深入探讨"), "聊")
+
+    def test_empty_tail_removed(self):
+        self.assertEqual(self.humanize("我们重构了模块，为后续迭代奠定了基础。"), "我们重构了模块。")
+        self.assertEqual(self.humanize("这次改动，为团队指明了方向。"), "这次改动。")
+        self.assertEqual(self.humanize("他写这份文档，为新人打开了新的大门。"), "他写这份文档。")
+        # 尾巴里带个短主语（这次改动，这为…）也收
+        self.assertEqual(self.humanize("改了缓存，这为团队指明了方向。"), "改了缓存。")
+
+    def test_tail_lookalikes_kept(self):
+        self.assertEqual(self.humanize("公司为员工提供了保障。"), "公司为员工提供了保障。")
+        self.assertEqual(self.humanize("这个改动为团队指明了方向。"), "这个改动为团队指明了方向。")
+        # 不在句末的同一句不动
+        self.assertEqual(
+            self.humanize("改了缓存，这为团队指明了方向，但也带来了新问题。"),
+            "改了缓存，这为团队指明了方向，但也带来了新问题。",
+        )
+
+    def test_meta_labels_removed(self):
+        self.assertEqual(self.humanize("直觉：先看日志"), "先看日志")
+        self.assertEqual(self.humanize("直观理解：这就是缓存"), "这就是缓存")
+        self.assertEqual(self.humanize("思路：先看日志"), "思路：先看日志")
+
+    def test_switch_off(self):
+        text = "目前现状，为后续迭代奠定了基础。"
+        self.assertEqual(self.humanize(text, strip_ai_cliches=False), text)
+
+
+class OpenerClicheTests(unittest.TestCase):
+    """铺垫式开头（众所周知 / 随着…的发展 / 近年来）。"""
+
+    def test_preamble_openers_removed(self):
+        p = make_plugin()
+        self.assertEqual(p.humanize("众所周知，这个库很难用。"), "这个库很难用。")
+        self.assertEqual(p.humanize("不可否认，他确实很强。"), "他确实很强。")
+        self.assertEqual(p.humanize("近年来，价格涨了不少。"), "价格涨了不少。")
+        self.assertEqual(p.humanize("随着 AI 的发展，这类工具越来越多。"), "这类工具越来越多。")
+        self.assertEqual(p.humanize("在当前的大背景下，先保住现金流。"), "先保住现金流。")
+
+    def test_same_words_not_at_start_untouched(self):
+        p = make_plugin()
+        self.assertEqual(p.humanize("这件事众所周知"), "这件事众所周知")
 
 
 class HumanizeTests(unittest.TestCase):

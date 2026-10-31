@@ -45,6 +45,12 @@ OPENERS = [
     re.compile(r"^\s*作为(?:一个|一名)?(?:AI|人工智能|语言模型|大模型|智能助手|AI助手)[^。！？\n]{0,12}[，,。！？!?\s]*"),
     re.compile(r"^\s*(?:那么[，,]?)?(?:让|我们)们?(?:一起)?(?:来)?(?:看看|来看看|聊聊|聊一聊|说说|谈谈|深入了解一下|分析一下)[^。！？\n]{0,6}[。！？：:，,\s]*"),
     re.compile(r"^\s*在(?:当今|如今|现在这个)(?:社会|时代|快节奏的?时代)[^。！？\n]{0,12}[，,]\s*"),
+    # 铺垫式开头（stop-slop-zh「开头套话」）：只认开头，且必须自带逗号，避免误吃正文里的同形词。
+    re.compile(r"^\s*众所周知[，,]?\s*"),
+    re.compile(r"^\s*不可否认(?:的是)?[，,]\s*"),
+    re.compile(r"^\s*(?:近年来|近些年来|这几年)[，,]\s*"),
+    re.compile(r"^\s*随着[^。！？\n]{0,24}?的(?:不断)?(?:发展|进步|普及|深入)[，,]\s*"),
+    re.compile(r"^\s*在[^。！？\n]{0,12}?的(?:大背景|浪潮|大潮)下[，,]\s*"),
 ]
 
 # 收尾套话：只认结尾。
@@ -100,6 +106,52 @@ REPLACEMENT_PATTERNS = [(re.compile(a), b) for a, b in REPLACEMENTS] + [
     (re.compile(r"(?:^|(?<=[，。；：！？、,.;:!?\s但而]))若(?=[你我您他她它咱们各位不])"), "要是"),
 ]
 
+# ---------------------------------------------------------------- AI 陈词（v1.1）
+# 词表与句式来自 D:\去AI味 的 stop-slop-zh（references/phrases.md）与
+# humanizer-zh-chat（references/zh-hans.md §1-2）。取舍标准只有一条：
+# 只收「删掉/替换后信息量不变」的项。需要判断频率的（单个「其实」、单个破折号、
+# 单次「不是…而是」在人类文本里都是正常现象）一律不进规则——正则没法数聚簇。
+CLICHES = [
+    # 同义反复：两个词说的是同一件事
+    (r"目前现状", "现状"),
+    (r"免费赠送", "赠送"),
+    (r"必须要", "必须"),
+    (r"人为的故意", "故意"),
+    # 填充短语：删掉不损失任何信息（只吃带逗号的整句，正文里同形词不动）
+    (r"从本质上(?:来说|讲)[，,]?", ""),
+    (r"从根本上(?:来说|讲|说)[，,]?", ""),
+    (r"归根结底[，,]?", ""),
+    (r"客观(?:来看|地说)[，,]?", ""),
+    (r"严格(?:来说|意义上讲)[，,]?", ""),
+    # 营销腔 / 中式学术腔：换成平实的那个词
+    (r"致力于打造", "做"),
+    (r"深入探讨", "聊"),
+    (r"深入剖析", "分析"),
+    (r"全面提升(?=[^，。！？\n]{0,8}(?:效率|质量|能力|水平|体验|速度))", "提高"),
+    # 互联网黑话：换成字面意思。只收不会被别的义项误伤的写法
+    (r"((?:竞争|商业|技术|品牌|产品|成本))护城河", r"\1优势"),
+    (r"第二增长曲线", "新的增长点"),
+    (r"全链路", "全流程"),
+    (r"破圈", "出圈"),
+    (r"引爆点", "爆点"),
+    (r"抓手", "办法"),
+    (r"心智", "认知"),
+]
+CLICHE_PATTERNS = [(re.compile(a), b) for a, b in CLICHES]
+
+# 句末空泛升华：「A，为 B 奠定了基础。」这类尾巴只宣布重要性，删到句号为止。
+# 只认「逗号 + 为… + 固定空泛谓语 + 句末」，正文中段的同形句不碰。
+EMPTY_TAIL = re.compile(
+    r"[，,；;]\s*(?:这|该|此|它)?[^，。！？；\n]{0,8}?为[^，。！？；\n]{1,20}?"
+    r"(?:奠定了基础|指明了方向|开辟了新的篇章|打开了新的大门|注入了新的活力|"
+    r"留下了深刻的启示|敲响了警钟)[。！!]?\s*$"
+)
+
+# 元叙事标签：「直觉：」「直观理解：」这类先宣布要说什么的引导词。
+META_LABEL = re.compile(
+    r"(?m)^[ \t]*(?:直觉|直观理解|核心观察是|核心思想是|基本想法是|关键性质|关键等式)[：:][ \t]*"
+)
+
 TOOLCALL_HINT = re.compile(
     r"<\s*(?:function_calls?|tool_calls?|invoke|function|parameter)\b", re.IGNORECASE
 )
@@ -141,8 +193,8 @@ def _clean_markdown(s: str) -> str:
 @register(
     "astrbot_plugin_humanizer",
     "Maxsun",
-    "出站前抹掉 AI 味话术壳（开场白/总结句/书面连接词/markdown 痕迹），代码块、链接、@ 卡片逐字节保留。",
-    "1.0.7",
+    "出站前抹掉 AI 味话术壳（开场白/总结句/书面连接词/陈词黑话/markdown 痕迹），代码块、链接、@ 卡片逐字节保留。",
+    "1.1.0",
 )
 class HumanizerPlugin(Star):
     """只在普通正文上做位置式改写，受保护片段原样穿过。"""
@@ -159,6 +211,7 @@ class HumanizerPlugin(Star):
         self.strip_closers = bool(config.get("strip_closers", True))
         self.strip_connectives = bool(config.get("strip_connectives", True))
         self.colloquial = bool(config.get("colloquial_swap", True))
+        self.strip_cliches = bool(config.get("strip_ai_cliches", True))
         self.clean_md = bool(config.get("clean_markdown", True))
         self.llm_rewrite = bool(config.get("llm_rewrite", False))
         self.llm_provider = str(config.get("llm_provider_id", "") or "").strip()
@@ -230,6 +283,11 @@ class HumanizerPlugin(Star):
         if self.colloquial:
             for pattern, repl in REPLACEMENT_PATTERNS:
                 s = pattern.sub(repl, s)
+        if self.strip_cliches:
+            s = EMPTY_TAIL.sub("。", s)
+            for pattern, repl in CLICHE_PATTERNS:
+                s = pattern.sub(repl, s)
+            s = META_LABEL.sub("", s)
         if self.clean_md:
             s = _clean_markdown(s)
         return s
