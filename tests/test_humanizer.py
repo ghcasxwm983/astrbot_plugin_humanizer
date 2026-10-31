@@ -32,6 +32,7 @@ def _install_astrbot_stubs() -> None:
     )
     api = types.ModuleType("astrbot.api")
     api.AstrBotConfig = dict
+    api.logger = astrbot.logger  # 插件必须从 astrbot.api 取 logger
 
     event = types.ModuleType("astrbot.api.event")
 
