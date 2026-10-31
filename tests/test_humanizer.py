@@ -138,6 +138,7 @@ class RuoReplacementTests(unittest.TestCase):
             strip_closers=False,
             strip_connectives=False,
             clean_markdown=False,
+            short_chat=False,
         ).humanize(s)
 
     def test_idioms_untouched(self):
@@ -178,7 +179,7 @@ class RuoReplacementTests(unittest.TestCase):
         text = "倘若你还有问题，欢迎随时提问"
         self.assertEqual(make_plugin().humanize(text), text)
         self.assertEqual(
-            make_plugin().humanize("配置就这些。若你还有其他问题，欢迎随时提问"), "配置就这些。"
+            make_plugin().humanize("配置就这些。若你还有其他问题，欢迎随时提问"), "配置就这些"
         )
 
 
@@ -278,7 +279,7 @@ class MessageChainTests(unittest.TestCase):
     def test_plain_string_response_uses_assignment(self):
         resp = _StrResp("**结论**：因此可以直接上线。")
         self.run_hook(resp)
-        self.assertEqual(resp.completion_text, "结论：所以可以直接上线。")
+        self.assertEqual(resp.completion_text, "结论：所以可以直接上线")
 
     def test_image_only_chain_is_noop(self):
         resp = _Resp([_Image()])
@@ -295,6 +296,7 @@ class ReplacementBoundaryTests(unittest.TestCase):
             strip_closers=False,
             strip_connectives=False,
             clean_markdown=False,
+            short_chat=False,
         ).humanize(s)
 
     def test_compounds_untouched(self):
@@ -365,12 +367,13 @@ class ReplacementBoundaryTests(unittest.TestCase):
     def test_url_protect_with_chinese_punctuation(self):
         # 验证 issue #14: URL 后跟中文句号等标点不被贪婪吞噬
         text = "详情请查看 https://example.com/test。欢迎使用！"
-        self.assertEqual(make_plugin().humanize(text), text)
+        # 末尾的「！」会被聊天口气规则收掉，URL 与句中句号必须原样
+        self.assertEqual(make_plugin().humanize(text), text[:-1])
 
     def test_issue_examples_in_full_pipeline(self):
         plugin = make_plugin()
-        self.assertEqual(plugin.humanize("这是非常规操作，不要这样做。"), "这是非常规操作，不要这样做。")
-        self.assertEqual(plugin.humanize("这是一个非常态的情况。"), "这是一个非常态的情况。")
+        self.assertEqual(plugin.humanize("这是非常规操作，不要这样做。"), "这是非常规操作，不要这样做")
+        self.assertEqual(plugin.humanize("这是一个非常态的情况。"), "这是一个非常态的情况")
 
 
 class JikeReplacementTests(unittest.TestCase):
@@ -382,6 +385,7 @@ class JikeReplacementTests(unittest.TestCase):
             strip_closers=False,
             strip_connectives=False,
             clean_markdown=False,
+            short_chat=False,
         ).humanize(s)
 
     def test_clause_final_becomes_jiuxing(self):
@@ -421,6 +425,7 @@ class ClicheTests(unittest.TestCase):
             strip_closers=False,
             strip_connectives=False,
             clean_markdown=False,
+            short_chat=False,
         )
         base.update(overrides)
         return make_plugin(**base).humanize(s)
@@ -485,15 +490,62 @@ class OpenerClicheTests(unittest.TestCase):
 
     def test_preamble_openers_removed(self):
         p = make_plugin()
-        self.assertEqual(p.humanize("众所周知，这个库很难用。"), "这个库很难用。")
-        self.assertEqual(p.humanize("不可否认，他确实很强。"), "他确实很强。")
-        self.assertEqual(p.humanize("近年来，价格涨了不少。"), "价格涨了不少。")
-        self.assertEqual(p.humanize("随着 AI 的发展，这类工具越来越多。"), "这类工具越来越多。")
-        self.assertEqual(p.humanize("在当前的大背景下，先保住现金流。"), "先保住现金流。")
+        self.assertEqual(p.humanize("众所周知，这个库很难用。"), "这个库很难用")
+        self.assertEqual(p.humanize("不可否认，他确实很强。"), "他确实很强")
+        self.assertEqual(p.humanize("近年来，价格涨了不少。"), "价格涨了不少")
+        self.assertEqual(p.humanize("随着 AI 的发展，这类工具越来越多。"), "这类工具越来越多")
+        self.assertEqual(p.humanize("在当前的大背景下，先保住现金流。"), "先保住现金流")
 
     def test_same_words_not_at_start_untouched(self):
         p = make_plugin()
         self.assertEqual(p.humanize("这件事众所周知"), "这件事众所周知")
+
+
+class ShortChatTests(unittest.TestCase):
+    """聊天口气：短、少标点、不复述（v1.0.9）。"""
+
+    def humanize(self, s, **overrides):
+        base = dict(
+            strip_openers=False,
+            strip_closers=False,
+            strip_connectives=False,
+            clean_markdown=False,
+        )
+        base.update(overrides)
+        return make_plugin(**base).humanize(s)
+
+    def test_tail_punctuation_dropped(self):
+        self.assertEqual(self.humanize("可以用这个。"), "可以用这个")
+        self.assertEqual(self.humanize("重启一下！"), "重启一下")
+        self.assertEqual(self.humanize("能用吗？"), "能用吗？")
+        self.assertEqual(self.humanize("重启。" * 1), "重启")
+
+    def test_restatement_tail_dropped(self):
+        self.assertEqual(self.humanize("重启就行，也就是说重启一下就好"), "重启就行")
+        self.assertEqual(self.humanize("先备份，换句话说先留个副本。"), "先备份")
+
+    def test_aside_lead_dropped_but_content_kept(self):
+        self.assertEqual(self.humanize("先备份。顺便说一下，重启也行。"), "先备份。重启也行")
+
+    def test_max_sentences_hard_cap(self):
+        self.assertEqual(
+            self.humanize("第一步先备份。第二步改配置。第三步重启。", max_sentences=2),
+            "第一步先备份。第二步改配置",
+        )
+        self.assertEqual(self.humanize("一句。两句。", max_sentences=0), "一句。两句")
+
+    def test_max_sentences_skips_code_blocks(self):
+        # 有围栏代码就不截断，只按聊天口气去掉末尾标点
+        text = "先看代码。\n```python\nprint(1)\n```\n再重启。"
+        self.assertEqual(self.humanize(text, max_sentences=1), text[:-1])
+
+    def test_short_chat_switch_off(self):
+        self.assertEqual(self.humanize("可以用这个。", short_chat=False), "可以用这个。")
+
+    def test_code_block_not_touched(self):
+        text = "```python\nprint('hi')\n```\n用这个"
+        self.assertEqual(self.humanize(text), text)
+        self.assertEqual(self.humanize("用这个。"), "用这个")
 
 
 class HumanizeTests(unittest.TestCase):
@@ -513,7 +565,7 @@ class HumanizeTests(unittest.TestCase):
 
     def test_opener_and_closer_still_stripped(self):
         text = "这是一个很好的问题。**结论**：因此可以直接上线。希望这对你有帮助。"
-        self.assertEqual(make_plugin().humanize(text), "结论：所以可以直接上线。")
+        self.assertEqual(make_plugin().humanize(text), "结论：所以可以直接上线")
 
     def test_empty_input_passthrough(self):
         self.assertEqual(make_plugin().humanize(""), "")
