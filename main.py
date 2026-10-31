@@ -7,8 +7,8 @@
 
 import re
 
-from astrbot import logger
 from astrbot.api import AstrBotConfig
+from astrbot.api import logger
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.provider import LLMResponse
 from astrbot.api.star import Context, Star, register
@@ -217,7 +217,7 @@ def _clean_markdown(s: str) -> str:
     "astrbot_plugin_humanizer",
     "Maxsun",
     "出站前抹掉 AI 味话术壳（开场白/总结句/书面连接词/陈词黑话/markdown 痕迹），代码块、链接、@ 卡片逐字节保留。",
-    "1.0.9",
+    "1.0.10",
 )
 class HumanizerPlugin(Star):
     """只在普通正文上做位置式改写，受保护片段原样穿过。"""
