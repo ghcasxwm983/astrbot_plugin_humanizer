@@ -106,7 +106,7 @@ REPLACEMENT_PATTERNS = [(re.compile(a), b) for a, b in REPLACEMENTS] + [
     (re.compile(r"(?:^|(?<=[，。；：！？、,.;:!?\s但而]))若(?=[你我您他她它咱们各位不])"), "要是"),
 ]
 
-# ---------------------------------------------------------------- AI 陈词（v1.1）
+# ---------------------------------------------------------------- AI 陈词（v1.0.8）
 # 词表与句式来自 D:\去AI味 的 stop-slop-zh（references/phrases.md）与
 # humanizer-zh-chat（references/zh-hans.md §1-2）。取舍标准只有一条：
 # 只收「删掉/替换后信息量不变」的项。需要判断频率的（单个「其实」、单个破折号、
@@ -194,7 +194,7 @@ def _clean_markdown(s: str) -> str:
     "astrbot_plugin_humanizer",
     "Maxsun",
     "出站前抹掉 AI 味话术壳（开场白/总结句/书面连接词/陈词黑话/markdown 痕迹），代码块、链接、@ 卡片逐字节保留。",
-    "1.1.0",
+    "1.0.8",
 )
 class HumanizerPlugin(Star):
     """只在普通正文上做位置式改写，受保护片段原样穿过。"""

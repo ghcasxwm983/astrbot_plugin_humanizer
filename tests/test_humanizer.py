@@ -351,7 +351,7 @@ class ReplacementBoundaryTests(unittest.TestCase):
         ]:
             self.assertEqual(self.humanize(s), s, s)
 
-        # 「必须要」不在「务必」的替换范围里，但它本身是同义反复（v1.1 陈词规则），
+        # 「必须要」不在「务必」的替换范围里，但它本身是同义反复（v1.0.8 陈词规则），
         # 这里断言的是「务」没被拆成「一定」，不是整句不变。
         self.assertEqual(self.humanize("债务必须要还"), "债务必须还")
         self.assertEqual(self.humanize("家务必须要分担"), "家务必须分担")
@@ -413,7 +413,7 @@ class JikeReplacementTests(unittest.TestCase):
 
 
 class ClicheTests(unittest.TestCase):
-    """AI 陈词与黑话（v1.1，词表来自 D:\\去AI味 的 stop-slop-zh / zh-hans）。"""
+    """AI 陈词与黑话（v1.0.8，词表来自 D:\\去AI味 的 stop-slop-zh / zh-hans）。"""
 
     def humanize(self, s, **overrides):
         base = dict(
