@@ -152,6 +152,19 @@ META_LABEL = re.compile(
     r"(?m)^[ \t]*(?:直觉|直观理解|核心观察是|核心思想是|基本想法是|关键性质|关键等式)[：:][ \t]*"
 )
 
+# 聊天口癖清理（short_chat）：真人在 QQ/微信里回话不会把每句都收尾标好。
+# 只去「整条消息末尾」的句号/感叹号，问号保留；句中的标点不动。
+TAIL_PUNCT = re.compile(r"[。！!～~]+$")
+
+# 复述型尾巴：「……，也就是说 XXX」把前面刚说过的话换个说法，删掉不丢信息。
+# 只认这几个纯复述引导词，且必须带逗号开新分句。
+RESTATEMENT = re.compile(r"[，,]\s*(?:也就是说|换句话说|说白了|简单来说|简单说|具体来说)[^。！？\n]*")
+
+# 顺带一提型插入语：只删引导语本身，后面那句真正的内容留着。
+ASIDE_LEAD = re.compile(r"(?:^|(?<=[。！？\n]))\s*(?:顺便(?:说一下|说一句|提一下|提一句|一提)|顺带(?:一提|说一句))[，,]\s*")
+
+SENTENCE_SPLIT = re.compile(r"[^。！？\n]+[。！？]?")
+
 TOOLCALL_HINT = re.compile(
     r"<\s*(?:function_calls?|tool_calls?|invoke|function|parameter)\b", re.IGNORECASE
 )
@@ -182,6 +195,16 @@ def _plain_components(resp):
     return [comp for comp in chain if _is_plain(comp)], chain
 
 
+def _clip_sentences(s: str, limit: int) -> str:
+    """只留前 limit 句（句子按 。！？ 或换行切，句末标点算在句内）。"""
+    if limit <= 0:
+        return s
+    parts = [p for p in SENTENCE_SPLIT.findall(s) if p.strip()]
+    if len(parts) <= limit:
+        return s
+    return "".join(parts[:limit]).rstrip()
+
+
 def _clean_markdown(s: str) -> str:
     s = re.sub(r"(?m)^[ \t]*#{1,6}[ \t]+", "", s)   # 行首 # 标题符号
     s = BOLD_PAIR.sub(r"\1", s)                      # 只拆成对的加粗标记，保留内容
@@ -194,7 +217,7 @@ def _clean_markdown(s: str) -> str:
     "astrbot_plugin_humanizer",
     "Maxsun",
     "出站前抹掉 AI 味话术壳（开场白/总结句/书面连接词/陈词黑话/markdown 痕迹），代码块、链接、@ 卡片逐字节保留。",
-    "1.0.8",
+    "1.0.9",
 )
 class HumanizerPlugin(Star):
     """只在普通正文上做位置式改写，受保护片段原样穿过。"""
@@ -212,6 +235,11 @@ class HumanizerPlugin(Star):
         self.strip_connectives = bool(config.get("strip_connectives", True))
         self.colloquial = bool(config.get("colloquial_swap", True))
         self.strip_cliches = bool(config.get("strip_ai_cliches", True))
+        self.short_chat = bool(config.get("short_chat", True))
+        try:
+            self.max_sentences = int(config.get("max_sentences", 0) or 0)
+        except (TypeError, ValueError):
+            self.max_sentences = 0
         self.clean_md = bool(config.get("clean_markdown", True))
         self.llm_rewrite = bool(config.get("llm_rewrite", False))
         self.llm_provider = str(config.get("llm_provider_id", "") or "").strip()
@@ -256,6 +284,12 @@ class HumanizerPlugin(Star):
 
         result = "".join(chunk for _, chunk in parts)
         result = re.sub(r"\n{3,}", "\n\n", result).strip()
+        if self.max_sentences > 0 and "```" not in result:
+            # 带围栏代码的回复不截断：按句号切会切到代码里
+            result = _clip_sentences(result, self.max_sentences).strip()
+        if self.short_chat and at_end:
+            # 只收整条消息的收尾标点；后头还有图片/下一段时，那个句号是分隔符，留着。
+            result = TAIL_PUNCT.sub("", result).strip()
         if result.strip():
             return result
         # 规则把整条吃空时：单条消息保留原文，宁可不改也不发空消息；
@@ -288,6 +322,9 @@ class HumanizerPlugin(Star):
             for pattern, repl in CLICHE_PATTERNS:
                 s = pattern.sub(repl, s)
             s = META_LABEL.sub("", s)
+        if self.short_chat:
+            s = ASIDE_LEAD.sub("", s)
+            s = RESTATEMENT.sub("", s)
         if self.clean_md:
             s = _clean_markdown(s)
         return s
@@ -296,7 +333,11 @@ class HumanizerPlugin(Star):
     async def _llm_polish(self, text: str, original: str) -> str:
         if len(text.strip()) < 8 or not self.llm_provider:
             return text
-        style = self.llm_style or "只改口气，保留全部事实、数字和代码。只输出改写后的正文。"
+        style = self.llm_style or (
+            "只改口气，保留全部事实、数字和代码。像人在 QQ 里随手打字："
+            "能一句说完就一句，最多三句，每句尽量 20 字以内；不复述问题、不解释自己、不加结尾总结。"
+            "只输出改写后的正文。"
+        )
         prompt = f"{style}\n\n待改写的回复：\n{text}"
         try:
             resp = await self.context.llm_generate(
@@ -306,13 +347,13 @@ class HumanizerPlugin(Star):
             logger.warning(f"[humanizer] 润色调用失败，保留规则结果：{exc}")
             return text
         out = (getattr(resp, "completion_text", "") or "").strip()
-        # 三道闸：空输出、把工具调用写成正文、长度失控，一律退回规则结果
+        # 四道闸：空输出、把工具调用写成正文、缩水过头、比原文还长（润色不等于扩写）
         if not out:
             return text
         if TOOLCALL_HINT.search(out):
             logger.warning("[humanizer] 润色结果含工具调用语法，已丢弃")
             return text
-        if not (len(text) * 0.4 <= len(out) <= len(text) * 1.8 + 20):
+        if not (len(text) * 0.4 <= len(out) <= len(text) * 1.15 + 10):
             logger.warning(f"[humanizer] 润色结果长度异常（{len(text)}→{len(out)}），已丢弃")
             return text
         return out
