@@ -215,9 +215,9 @@ def _clean_markdown(s: str) -> str:
 
 @register(
     "astrbot_plugin_humanizer",
-    "Maxsun",
+    "SO酱",
     "出站前抹掉 AI 味话术壳（开场白/总结句/书面连接词/陈词黑话/markdown 痕迹），代码块、链接、@ 卡片逐字节保留。",
-    "1.0.10",
+    "1.0.11",
 )
 class HumanizerPlugin(Star):
     """只在普通正文上做位置式改写，受保护片段原样穿过。"""
